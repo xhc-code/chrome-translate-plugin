@@ -1,0 +1,18 @@
+{
+  "name": "Google Traslate Plugin",
+  "version": "0.1",
+  "description": "使用谷歌服务进行翻译的插件",
+  "background": {
+    "persistent": false,
+    "scripts": ["background.js"]
+  },
+  "manifest_version": 2,
+  "permissions": ["activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "css": [],
+      "js": ["googleTranslate.js"]
+    }
+  ]
+}
