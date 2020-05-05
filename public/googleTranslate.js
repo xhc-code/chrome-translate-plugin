@@ -22,7 +22,7 @@ function translateDom(){
 
     let selectContainer = rangeAt.commonAncestorContainer
 
-    DOMUtils.extractDOM(selectContainer,selection,{})
+    DOMUtils.extractDoms(selectContainer,selection,DOMUtils.extractExclude(host))
 
 }
 
@@ -83,6 +83,7 @@ class DOMUtils{
             ranges.processing.isComplete = true
             ranges.array.push(ranges.processing)
             //设置新Range对象
+            console.log("extractRanges",ranges,node)
             // startOffset = result.index + 1
             startOffset = r.re.lastIndex
             textRange = new Range()
@@ -90,7 +91,7 @@ class DOMUtils{
             textRange.setStart(node,startOffset)
             ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
 
-            result = that.matchPoint(nodeValue,startOffset).result
+            result = r.re.exec(nodeValue)
         }
     }
 
@@ -120,6 +121,7 @@ class DOMUtils{
         ranges = Object.assign(ranges,{array:ranges.array || [],processing:ranges.processing || null})
         let childNodes =dom.childNodes
         let range = constituency.range
+        debugger
         childNodes.forEach(function(node){
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
@@ -151,161 +153,6 @@ class DOMUtils{
     }
 
 
-
-
-
-    //第二个版本
-    //// 函数名称_主版本_次版本_状态
-    static findRanges_2_0_nucomplete(dom,selection,range,ranges,stateObject){
-        //总的Ranges结果数组
-        ranges = ranges || []
-        //保存状态对象西悉尼，可在递归的时候进行判断
-        stateObject = stateObject || {}
-
-        let nodeType = dom.nodeType
-        if(nodeType === Node.ELEMENT_NODE){
-            let childNodes = dom.childNodes
-            for(let i=0;i<childNodes.length;i++){
-                this.findRanges(childNodes.item(i),selection,range,ranges, stateObject)
-            }
-        }else if(nodeType === Node.TEXT_NODE){
-            let range = selection.getRangeAt(0)
-            let nodeValue = dom.nodeValue
-            if(range.startContainer === range.endContainer && range.startContainer === dom){
-                let result=null,isStart=true;
-                while((result = this.matchPoint(nodeValue)).result){
-                    let domTextNode = dom
-                    let startOffset = isStart ? range.startOffset:(isStart=false,result.re.lastIndex)
-                    let endOffset = range.endOffset
-                    let range = new Range()
-                    range.setStart(domTextNode,startOffset)
-                    range.setEnd(domTextNode,(result.result !== null ? result.result.index+1:endOffset))
-                    ranges.push(range)
-                }
-            }else{
-                //先开始，通过 stateObject 对象里的一个状态进行控制
-                if(stateObject.injectStart && dom === range.startContainer) {
-                    let startContainer = range.startContainer
-                    let startOffset = range.startOffset
-
-                    let range = new Range()
-                    range.setStart(startContainer,startOffset)
-                }
-                //后结束
-                if(stateObject.injectEnd && dom === range.endContainer){
-                    //结束结点
-
-                }
-
-            }
-
-        }
-
-    }
-
-    // 函数名称_主版本_次版本_状态
-    static translateContent_1_0_nucomplete(dom,selection){
-        let that = this;
-        const nodeRanges = new Array();
-        let childNodes = dom.childNodes;
-        let range = selection.getRangeAt(0)
-
-        for(let i=0,nextStartNote=null;i<childNodes.length;i++){
-            let nodeElement = childNodes.item(i)
-
-            let nodeType = nodeElement.nodeType
-            if(nodeType === Node.ELEMENT_NODE){
-                return that.translateContent(dom,selection)
-            }else if(nodeType === Node.TEXT_NODE){
-                if(range.startContainer === range.endContainer){
-                    //当开始和结束节点是同一节点，代表从一个节点上搜索 英文句号  就可以了，否则，直接选中整个Range范围
-
-
-                }else if(nodeElement === range.startContainer){
-                    //开始节点
-                    //设置开始节点
-                    let startOffset = range.startOffset
-                    let textStartRange = new Range()
-                    textStartRange.setStart(nodeElement,startOffset)
-                    //设置结束的节点,这里遍历节点开始寻找 英文的句号，设置Range对象
-                    let endIndex=i+1
-                    for(;endIndex < childNodes.length; endIndex++){
-                        let endNode = childNodes.item(endIndex)
-                        let result = that.setRangeEndNodeByPoint(endNode,textStartRange);
-                        if(result.setState){
-                            //设置下一个Range范围
-                            nextStartNote = result
-                            break;
-                        }
-                    }
-                    //同步外层的 i 循环索引变量
-                    i = endIndex
-                    nodeRanges.push(textStartRange)
-                }else if(nodeElement === range.endContainer){
-                    //结束结点
-
-                }else{
-                    //普通节点的操作
-
-
-                }
-            }
-        }
-
-    }
-
-
-    /**
-     *
-     * @param dom
-     * @param range
-     * @param parents 嵌套节点的所有父节点
-     * @returns {{setState: boolean}|{nextStartOffset: *, nextStartNode: Node, hasNextNode: boolean, setState: boolean}|{setState: boolean}|{nextStartOffset: *, nextStartNode: TNode, hasNextNode: boolean, setState: boolean}}
-     */
-    static setRangeEndNodeByPoint(dom,range,parents){
-        parents = parents || []
-        let childNodes = dom.childNodes
-        for(let i=0;i<childNodes.length;i++) {
-            let nodeElement = childNodes.item(i)
-            let nodeType = nodeElement.nodeType
-            if(nodeType === Node.ELEMENT_NODE){
-                parents.push({
-                    currentDom:dom,
-                    currentNodeArray:childNodes,
-                    currentIndex:i
-                })
-                let result = this.setRangeEndNodeByPoint(nodeElement,range,parents)
-                if(result.setState){
-                    result.parents = parents
-                    //深度
-                    result.deep = parents.length
-                    return result
-                }
-            }else if(nodeType === Node.TEXT_NODE) {
-                let nodeValue = nodeElement.nodeValue
-                let result = this.matchPoint(nodeValue).result
-                if(result !== null){
-                    let [,endPosition] = result
-                    range.setEnd(nodeElement,endPosition)
-                    return {
-                        //设置操作的Range结束节点状态，True成功，false失败，需要切换下一个节点再调用此方法
-                        setState:true,
-                        //所属节点数据，currentNode在这个数组里存在
-                        pertainNodeArray: childNodes,
-                        currentNodeIndex: i,
-                        currentNode:nodeElement,
-                        hasPertainNodeArrayEnd: childNodes.length-1 === i,
-                        //基于0开始的索引值;前提是当前文本未处于末尾，此属性才有用
-                        nextStartOffset:endPosition+1,
-                        //是否直接切换下一个节点，代表当前的结束位置已是此节点的末尾
-                        hasNextNode: (nodeValue.length === endPosition+1)
-                    }
-                }
-            }
-        }
-        return {setState:false}
-    }
-
     static matchPoint(text,startIndex){
         const regex = new RegExp(/\.\s/,"g")
         regex.lastIndex = startIndex || 0
@@ -313,25 +160,7 @@ class DOMUtils{
     }
 
 
-
-    static hasCurrentTextNode(){
-        return this.hasTextNode(document.getSelection())
-    }
-
-    /**
-     * 判断当前选区Selection的包容容器是否是 文本节点
-     * @param selection
-     * @returns {boolean}
-     */
-    static hasTextNode(selection) {
-        if(!(selection instanceof Selection)){
-            throw new ObjectTypeNotMatcher("对象类型不匹配")
-        }
-        let range = selection.getRangeAt(0)
-        return range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-    }
-
-    static extractDOM(dom,selection,exclude){
+    static extractDoms(dom,selection,exclude){
         let doms = []
         //选取的范围对象
         if(exclude){
@@ -349,7 +178,7 @@ class DOMUtils{
                     console.log("进行遍历的的集合：",translateElements)
                     //提取出来要翻译的doms对象
                     translateElements.forEach((ele)=>{
-                        doms.push(...DOMUtils.extractDOM(ele,selection,exclude))
+                        doms.push(...DOMUtils.extractDoms(ele,selection,exclude))
                     })
                     return doms;
                 }
@@ -358,9 +187,4 @@ class DOMUtils{
         doms.push(dom)
         return doms;
     }
-}
-
-
-function ObjectTypeNotMatcher(message){
-    this.message = message
 }
