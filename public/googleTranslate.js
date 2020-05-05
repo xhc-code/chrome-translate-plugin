@@ -70,30 +70,39 @@ class DOMUtils{
         return JSON.parse(JSON.stringify(exclude))
     }
 
-    function extractRanges(ranges,textRange,node,nodeValue,startOffset){
-        let that = this
+    static extractRanges(ranges,node,startOffset){
+        let that = this,nodeValue = node.nodeValue,textRange=ranges.processing.o
         startOffset = startOffset || 0
         let r = that.matchPoint(nodeValue,startOffset)
         let result = r.result
         while(true) {
-            if(result!==null) {
-                //offset基于1开始
-                textRange.setEnd(node, r.re.lastIndex)
-                ranges.processing.toEnd = false
-                ranges.processing.isComplete = true
-                ranges.array.push(ranges.processing)
+            if(result === null) break
+            //offset基于1开始
+            textRange.setEnd(node, r.re.lastIndex)
+            ranges.processing.toEnd = false
+            ranges.processing.isComplete = true
+            ranges.array.push(ranges.processing)
+            //设置新Range对象
+            // startOffset = result.index + 1
+            startOffset = r.re.lastIndex
+            textRange = new Range()
+            //offset基于0开始
+            textRange.setStart(node,startOffset)
+            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
 
-                //设置新Range对象
-                // startOffset = result.index + 1
-                startOffset = r.re.lastIndex
-                textRange = new Range()
-                //offset基于0开始
-                textRange.setStart(node,startOffset)
-                ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-            }else{
-                break
-            }
             result = that.matchPoint(nodeValue,startOffset).result
+        }
+    }
+
+    static extractAfterEndNode(ranges,node,range){
+        let textRange = ranges.processing.o
+        if(!ranges.processing.isComplete && ranges.processing.toEnd){
+            let endOffset = range.endOffset
+            textRange.setEnd(node,endOffset)
+            ranges.processing.toEnd = false
+            ranges.processing.isComplete = true
+            ranges.array.push(ranges.processing)
+            ranges.processing = null
         }
     }
 
@@ -109,107 +118,36 @@ class DOMUtils{
         // constituency选区的对象 ==> {selection:{},ranges:[range]}
         // Range==>{range:对象,isComplete:false,toStart:false,toEnd:true}
         ranges = Object.assign(ranges,{array:ranges.array || [],processing:ranges.processing || null})
-
         let childNodes =dom.childNodes
         let range = constituency.range
         childNodes.forEach(function(node){
             let nodeType = node.nodeType
-            let nodeValue = node.nodeValue
             if(Node.ELEMENT_NODE === nodeType){
                 that.extractRangesByDom(node,ranges,constituency)
             }else if(Node.TEXT_NODE === nodeType){
-                if(node === range.startContainer){
+                if(range.startContainer === range.endContainer){
                     let startOffset = range.startOffset
                     let textRange = new Range()
                     textRange.setStart(node,startOffset)
                     ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                    //====
-                    let r = that.matchPoint(nodeValue,startOffset)
-                    let result = r.result
-                    while(true) {
-                        if(result!==null) {
-                            //offset基于1开始
-                            textRange.setEnd(node, r.re.lastIndex)
-                            ranges.processing.toEnd = false
-                            ranges.processing.isComplete = true
-                            ranges.array.push(ranges.processing)
-
-                            //设置新Range对象
-                            // startOffset = result.index + 1
-                            startOffset = r.re.lastIndex
-                            textRange = new Range()
-                            //offset基于0开始
-                            textRange.setStart(node,startOffset)
-                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                        }else{
-                            break
-                        }
-                        result = that.matchPoint(nodeValue,startOffset).result
-                    }
-                    //====
+                    that.extractRanges(ranges,node,startOffset)
+                    //结束最后的一个节点对象Range的End结束
+                    that.extractAfterEndNode(ranges,node,range)
+                }else if(node === range.startContainer){
+                    let startOffset = range.startOffset
+                    let textRange = new Range()
+                    textRange.setStart(node,startOffset)
+                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                    that.extractRanges(ranges,node,startOffset)
                 }else if(node === range.endContainer){
-                    let textRange = ranges.processing.o
-                    let endOffset = range.endOffset
-                    let startOffset
-                    let r = that.matchPoint(nodeValue)
-                    let result = r.result
-                    while(true){
-                        if(result !== null){
-                            //offset基于1开始
-                            textRange.setEnd(node, r.re.lastIndex)
-                            ranges.processing.toEnd = false
-                            ranges.processing.isComplete = true
-                            ranges.array.push(ranges.processing)
-
-                            //设置新Range对象
-                            startOffset = r.re.lastIndex
-                            textRange = new Range()
-                            //offset基于0开始
-                            textRange.setStart(node,startOffset)
-                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                        }else{
-                            break;
-                        }
-                        result = that.matchPoint(nodeValue,startOffset).result
-                    }
-                    //当未完成并且需要设置结束节点时进入
-                    if(!ranges.processing.isComplete && ranges.processing.toEnd){
-                        textRange.setEnd(node,endOffset)
-                        ranges.processing.toEnd = false
-                        ranges.processing.isComplete = true
-                        ranges.array.push(ranges.processing)
-                        ranges.processing = null
-                    }
+                    that.extractRanges(ranges,node)
+                    //结束最后的一个节点对象Range的End结束
+                    that.extractAfterEndNode(ranges,node,range)
                 }else{
-                    let textRange = ranges.processing.o
-                    //更换新的节点，从0开始
-                    let startOffset
-                    let r = that.matchPoint(nodeValue)
-                    let result = r.result
-                    while(true) {
-                        if(result!==null) {
-                            //offset基于1开始
-                            textRange.setEnd(node, r.re.lastIndex)
-                            ranges.processing.toEnd = false
-                            ranges.processing.isComplete = true
-                            ranges.array.push(ranges.processing)
-
-                            //设置新Range对象
-                            startOffset = r.re.lastIndex
-                            textRange = new Range()
-                            //offset基于0开始
-                            textRange.setStart(node,startOffset)
-                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                        }else{
-                            break
-                        }
-                        result = that.matchPoint(nodeValue,startOffset).result
-                    }
+                    that.extractRanges(ranges,node)
                 }
             }
         })
-        console.log("result",dom,ranges,constituency)
-
     }
 
 
