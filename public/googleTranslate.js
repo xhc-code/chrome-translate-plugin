@@ -70,11 +70,203 @@ class DOMUtils{
         return JSON.parse(JSON.stringify(exclude))
     }
 
+    function extractRanges(ranges,textRange,node,nodeValue,startOffset){
+        let that = this
+        startOffset = startOffset || 0
+        let r = that.matchPoint(nodeValue,startOffset)
+        let result = r.result
+        while(true) {
+            if(result!==null) {
+                //offset基于1开始
+                textRange.setEnd(node, r.re.lastIndex)
+                ranges.processing.toEnd = false
+                ranges.processing.isComplete = true
+                ranges.array.push(ranges.processing)
+
+                //设置新Range对象
+                // startOffset = result.index + 1
+                startOffset = r.re.lastIndex
+                textRange = new Range()
+                //offset基于0开始
+                textRange.setStart(node,startOffset)
+                ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+            }else{
+                break
+            }
+            result = that.matchPoint(nodeValue,startOffset).result
+        }
+    }
+
+    //最新版本
+    /**
+     * 提取指定dom里的以句号分隔的Ranges对象集合
+     * @param dom 针对的根DOM元素
+     * @param ranges 数组Ranges集合
+     * @param constituency 选区的对象，保存DOM里的Selection和Range对象
+     */
+    static extractRangesByDom(dom,ranges,constituency) {
+        let that = this
+        // constituency选区的对象 ==> {selection:{},ranges:[range]}
+        // Range==>{range:对象,isComplete:false,toStart:false,toEnd:true}
+        ranges = Object.assign(ranges,{array:ranges.array || [],processing:ranges.processing || null})
+
+        let childNodes =dom.childNodes
+        let range = constituency.range
+        childNodes.forEach(function(node){
+            let nodeType = node.nodeType
+            let nodeValue = node.nodeValue
+            if(Node.ELEMENT_NODE === nodeType){
+                that.extractRangesByDom(node,ranges,constituency)
+            }else if(Node.TEXT_NODE === nodeType){
+                if(node === range.startContainer){
+                    let startOffset = range.startOffset
+                    let textRange = new Range()
+                    textRange.setStart(node,startOffset)
+                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                    //====
+                    let r = that.matchPoint(nodeValue,startOffset)
+                    let result = r.result
+                    while(true) {
+                        if(result!==null) {
+                            //offset基于1开始
+                            textRange.setEnd(node, r.re.lastIndex)
+                            ranges.processing.toEnd = false
+                            ranges.processing.isComplete = true
+                            ranges.array.push(ranges.processing)
+
+                            //设置新Range对象
+                            // startOffset = result.index + 1
+                            startOffset = r.re.lastIndex
+                            textRange = new Range()
+                            //offset基于0开始
+                            textRange.setStart(node,startOffset)
+                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                        }else{
+                            break
+                        }
+                        result = that.matchPoint(nodeValue,startOffset).result
+                    }
+                    //====
+                }else if(node === range.endContainer){
+                    let textRange = ranges.processing.o
+                    let endOffset = range.endOffset
+                    let startOffset
+                    let r = that.matchPoint(nodeValue)
+                    let result = r.result
+                    while(true){
+                        if(result !== null){
+                            //offset基于1开始
+                            textRange.setEnd(node, r.re.lastIndex)
+                            ranges.processing.toEnd = false
+                            ranges.processing.isComplete = true
+                            ranges.array.push(ranges.processing)
+
+                            //设置新Range对象
+                            startOffset = r.re.lastIndex
+                            textRange = new Range()
+                            //offset基于0开始
+                            textRange.setStart(node,startOffset)
+                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                        }else{
+                            break;
+                        }
+                        result = that.matchPoint(nodeValue,startOffset).result
+                    }
+                    //当未完成并且需要设置结束节点时进入
+                    if(!ranges.processing.isComplete && ranges.processing.toEnd){
+                        textRange.setEnd(node,endOffset)
+                        ranges.processing.toEnd = false
+                        ranges.processing.isComplete = true
+                        ranges.array.push(ranges.processing)
+                        ranges.processing = null
+                    }
+                }else{
+                    let textRange = ranges.processing.o
+                    //更换新的节点，从0开始
+                    let startOffset
+                    let r = that.matchPoint(nodeValue)
+                    let result = r.result
+                    while(true) {
+                        if(result!==null) {
+                            //offset基于1开始
+                            textRange.setEnd(node, r.re.lastIndex)
+                            ranges.processing.toEnd = false
+                            ranges.processing.isComplete = true
+                            ranges.array.push(ranges.processing)
+
+                            //设置新Range对象
+                            startOffset = r.re.lastIndex
+                            textRange = new Range()
+                            //offset基于0开始
+                            textRange.setStart(node,startOffset)
+                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                        }else{
+                            break
+                        }
+                        result = that.matchPoint(nodeValue,startOffset).result
+                    }
+                }
+            }
+        })
+        console.log("result",dom,ranges,constituency)
+
+    }
 
 
 
 
-    static translateContent(dom,selection){
+
+    //第二个版本
+    //// 函数名称_主版本_次版本_状态
+    static findRanges_2_0_nucomplete(dom,selection,range,ranges,stateObject){
+        //总的Ranges结果数组
+        ranges = ranges || []
+        //保存状态对象西悉尼，可在递归的时候进行判断
+        stateObject = stateObject || {}
+
+        let nodeType = dom.nodeType
+        if(nodeType === Node.ELEMENT_NODE){
+            let childNodes = dom.childNodes
+            for(let i=0;i<childNodes.length;i++){
+                this.findRanges(childNodes.item(i),selection,range,ranges, stateObject)
+            }
+        }else if(nodeType === Node.TEXT_NODE){
+            let range = selection.getRangeAt(0)
+            let nodeValue = dom.nodeValue
+            if(range.startContainer === range.endContainer && range.startContainer === dom){
+                let result=null,isStart=true;
+                while((result = this.matchPoint(nodeValue)).result){
+                    let domTextNode = dom
+                    let startOffset = isStart ? range.startOffset:(isStart=false,result.re.lastIndex)
+                    let endOffset = range.endOffset
+                    let range = new Range()
+                    range.setStart(domTextNode,startOffset)
+                    range.setEnd(domTextNode,(result.result !== null ? result.result.index+1:endOffset))
+                    ranges.push(range)
+                }
+            }else{
+                //先开始，通过 stateObject 对象里的一个状态进行控制
+                if(stateObject.injectStart && dom === range.startContainer) {
+                    let startContainer = range.startContainer
+                    let startOffset = range.startOffset
+
+                    let range = new Range()
+                    range.setStart(startContainer,startOffset)
+                }
+                //后结束
+                if(stateObject.injectEnd && dom === range.endContainer){
+                    //结束结点
+
+                }
+
+            }
+
+        }
+
+    }
+
+    // 函数名称_主版本_次版本_状态
+    static translateContent_1_0_nucomplete(dom,selection){
         let that = this;
         const nodeRanges = new Array();
         let childNodes = dom.childNodes;
@@ -115,7 +307,7 @@ class DOMUtils{
                     //结束结点
 
                 }else{
-
+                    //普通节点的操作
 
 
                 }
@@ -153,7 +345,7 @@ class DOMUtils{
                 }
             }else if(nodeType === Node.TEXT_NODE) {
                 let nodeValue = nodeElement.nodeValue
-                let result = this.matchPoint(nodeValue)
+                let result = this.matchPoint(nodeValue).result
                 if(result !== null){
                     let [,endPosition] = result
                     range.setEnd(nodeElement,endPosition)
@@ -176,9 +368,10 @@ class DOMUtils{
         return {setState:false}
     }
 
-    static matchPoint(text){
+    static matchPoint(text,startIndex){
         const regex = new RegExp(/\.\s/,"g")
-        return regex.exec(text)
+        regex.lastIndex = startIndex || 0
+        return {result:regex.exec(text),re:regex}
     }
 
 
