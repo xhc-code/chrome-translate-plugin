@@ -12,7 +12,11 @@
     {
       "matches": ["*://*/*"],
       "css": [],
-      "js": ["googleTranslate.js"]
+      "js": ["GT.js","googleTranslate.js"]
     }
-  ]
+  ],
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
+  "browser_action": {
+    "default_popup": "index.html"
+  }
 }
