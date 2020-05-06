@@ -121,7 +121,6 @@ class DOMUtils{
         ranges = Object.assign(ranges,{array:ranges.array || [],processing:ranges.processing || null})
         let childNodes =dom.childNodes
         let range = constituency.range
-        debugger
         childNodes.forEach(function(node){
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
@@ -187,4 +186,41 @@ class DOMUtils{
         doms.push(dom)
         return doms;
     }
+
+
+    static getOwnElement(dom){
+        if(Node.ELEMENT_NODE === dom.nodeType){
+            return dom
+        }
+        let parentElement = dom.parentElement
+        return this.getOwnElement(parentElement)
+    }
+
+    static extractTranslateDoms(dom,elements,selection){
+        //返回的结果元素数组
+        elements = elements || []
+
+        if(dom === this.getOwnElement(selection.getRangeAt(0).startContainer) || dom === this.getOwnElement(selection.getRangeAt(0).endContainer)){
+            elements.push(dom)
+        }else{
+            if(selection.containsNode(dom)){
+                //完全包含节点
+                elements.push(dom)
+            }else{
+                let children = dom.children
+                if(children.length>0){
+                    for(let i=0;i<children.length;i++){
+                        let dom = children.item(i)
+                        //当此节点被部分包含选中的范围
+                        if(selection.containsNode(dom,true)){
+                            this.extractTranslateDoms(dom,elements,selection)
+                        }
+                    }
+                }
+            }
+        }
+        return elements
+    }
+
+
 }
