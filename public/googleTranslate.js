@@ -6,23 +6,25 @@ console.log("谷歌翻译",window.document,document.body)
 function translateDom(){
     let selection = window.getSelection();
 
-    if(selection.rangeCount>0){
-        let rangeAt = selection.getRangeAt(0)
-    }
-
-
-    if(selection.isCollapsed){
+    if(selection.isCollapsed || selection.rangeCount === 0){
         throw new Error("请选择文本再进行翻译");
     }
 
-    let host = Window.location.host;
-    let pathname = window.location.pathname
+    let [host,pathname] = [window.location.host,window.location.pathname]
 
-    let exclude = this.excludes[host]
+    let exclude = DOMUtils.getExclude(host)
 
-    let selectContainer = rangeAt.commonAncestorContainer
+    let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,exclude)
+    console.log("第一步,所检索出的元素DOM对象",elements)
 
-    DOMUtils.extractDoms(selectContainer,selection,DOMUtils.extractExclude(host))
+    let allRanges = []
+    elements.forEach(function(dom){
+        let ranges =  DOMUtils.extractRangesByDom(dom,selection);
+        allRanges.push(...ranges.array)
+    })
+    top.elements = elements
+    top.allRanges = allRanges
+    console.log("第二部,分析出的所有需要翻译的Ranges",allRanges)
 
 }
 
@@ -30,42 +32,37 @@ function translateDom(){
 class DOMUtils{
     static excludes = {
         "域名":{
-            path:"子路径(匹配形式)",//前端给的路径匹配正则，应用排除元素选择器规则
-            //带css表达式的排除规则
+            path:"子路径(匹配形式)",//前端给的路径匹配正则，应用排除元素选择器规则，决定是否应用这个排除规则
+            //带css选择器的排除规则，只能排除DOM，这个是根据DOM对象进行排除的
             excludeElementSelector:"span>a,em strong",
-            //单个元素的排除规则
+            //单个元素的排除规则，这个是根据标签名进行排除的
             excludeElementSelectors:["span","a","em","strong"]
         }
     };
 
     /**
-     * 添加排除元素规则
-     * 格式：
-     *  {
-     *      "域名":{
-            path:"子路径(匹配形式)",//前端给的路径匹配正则，应用排除元素选择器规则
-            //带css表达式的排除规则
-            excludeElementSelector:"span>a,em strong",
-            //单个元素的排除规则
-            excludeElementSelectors:["span","a","em","strong"]
-            }
-     *  }
+     * 设置排除元素规则
+     * @parm key 域名
      * @param exclude
      */
-    static addExclude(...exclude){
-        this.excludes.push(exclude)
+    static setExclude(key,exclude){
+        this.excludes[key] = exclude
     }
 
     /**
      * 根据域名提取排除规则对象
      * @param host 域名
      */
-    static extractExclude(host){
+    static getExclude(host){
         let exclude = this.excludes[host];
-        if(exclude){
-            console.warn("%s 未包含在排除规则中",host)
+        if(!exclude){
+            console.info("%s 未包含在排除规则中",host)
             //保持兼容，返回空对象
-            return {}
+            return {
+                path:"",
+                excludeElementSelector:"",
+                excludeElementSelectors:[]
+            }
         }
         return JSON.parse(JSON.stringify(exclude))
     }
@@ -95,8 +92,19 @@ class DOMUtils{
         }
     }
 
+    /**
+     *
+     * @param ranges
+     * @param node
+     * @param range 当range为undefined或为null，将以 node 对象创建一个新的Range对象
+     */
     static extractAfterEndNode(ranges,node,range){
         let textRange = ranges.processing.o
+        if(range === undefined || range === null){
+            //结束中间节点的的End结束
+            range = new Range()
+            range.selectNodeContents(node)
+        }
         if(!ranges.processing.isComplete && ranges.processing.toEnd){
             let endOffset = range.endOffset
             textRange.setEnd(node,endOffset)
@@ -111,20 +119,41 @@ class DOMUtils{
     /**
      * 提取指定dom里的以句号分隔的Ranges对象集合
      * @param dom 针对的根DOM元素
-     * @param ranges 数组Ranges集合
-     * @param constituency 选区的对象，保存DOM里的Selection和Range对象
+     * @param selection 选区的对象getSelection()
+     * @param ranges 数组Ranges集合,结果集合
      */
-    static extractRangesByDom(dom,ranges,constituency) {
-        let that = this
+    static extractRangesByDom(dom,selection,ranges) {
+        let that = this,constituency = selection
         // constituency选区的对象 ==> {selection:{},ranges:[range]}
         // Range==>{range:对象,isComplete:false,toStart:false,toEnd:true}
-        ranges = Object.assign(ranges,{array:ranges.array || [],processing:ranges.processing || null})
-        let childNodes =dom.childNodes
-        let range = constituency.range
+
+        if(selection instanceof Selection){
+            constituency = {
+                selection: selection,
+                firstRange: selection.getRangeAt(0)
+            }
+        }
+        let range = constituency.firstRange
+
+        ranges = ranges || []
+        if(ranges.array === undefined){
+            ranges.array = []
+        }
+        if(ranges.processing === undefined){
+            ranges.processing = null
+        }
+        //正文开始
+        let childNodes
+        if(dom.nodeType === Node.TEXT_NODE){
+            childNodes = [dom]
+        }else{
+            childNodes = dom.childNodes
+        }
+
         childNodes.forEach(function(node){
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
-                that.extractRangesByDom(node,ranges,constituency)
+                that.extractRangesByDom(node,constituency,ranges)
             }else if(Node.TEXT_NODE === nodeType){
                 if(range.startContainer === range.endContainer){
                     let startOffset = range.startOffset
@@ -140,15 +169,28 @@ class DOMUtils{
                     textRange.setStart(node,startOffset)
                     ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                     that.extractRanges(ranges,node,startOffset)
+                    //结束最后的一个节点对象Range的End结束
+                    that.extractAfterEndNode(ranges,node)
                 }else if(node === range.endContainer){
+                    let textRange = new Range()
+                    textRange.setStart(node,0)
+                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                     that.extractRanges(ranges,node)
                     //结束最后的一个节点对象Range的End结束
                     that.extractAfterEndNode(ranges,node,range)
                 }else{
+                    let textRange = new Range()
+                    textRange.setStart(node,0)
+                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                     that.extractRanges(ranges,node)
+                    //结束中间节点的的End结束
+                    that.extractAfterEndNode(ranges,node)
                 }
             }
         })
+
+
+        return ranges
     }
 
 
@@ -196,11 +238,24 @@ class DOMUtils{
         return this.getOwnElement(parentElement)
     }
 
-    static extractTranslateDoms(dom,elements,selection){
+    /**
+     * 捕获方式进行遍历出选区的DOM对象
+     * @param dom
+     * @param selection
+     * @param exclude
+     * @param elements
+     * @returns {*}
+     */
+    static extractTranslateDomsBySelection(dom,selection,exclude,elements){
         //返回的结果元素数组
         elements = elements || []
 
-        if(dom === this.getOwnElement(selection.getRangeAt(0).startContainer) || dom === this.getOwnElement(selection.getRangeAt(0).endContainer)){
+        let range = selection.getRangeAt(0)
+        if(dom === null){
+            dom = range.commonAncestorContainer
+        }
+
+        if(dom === this.getOwnElement(range.startContainer) || dom === this.getOwnElement(range.endContainer)){
             elements.push(dom)
         }else{
             if(selection.containsNode(dom)){
@@ -211,9 +266,14 @@ class DOMUtils{
                 if(children.length>0){
                     for(let i=0;i<children.length;i++){
                         let dom = children.item(i)
+                        let nodeName = dom.nodeName
+                        if(dom.nodeType === Node.ELEMENT_NODE && exclude.excludeElementSelectors.includes(nodeName.toLowerCase())){
+                            continue
+                        }
+
                         //当此节点被部分包含选中的范围
                         if(selection.containsNode(dom,true)){
-                            this.extractTranslateDoms(dom,elements,selection)
+                            this.extractTranslateDomsBySelection(dom,selection,exclude,elements)
                         }
                     }
                 }
