@@ -198,10 +198,6 @@ class DOMUtils{
                         textRange.setStart(node,startOffset)
                         ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                         that.extractRanges(ranges,node,startOffset)
-                    }else if(node === range.endContainer){
-                        that.extractRanges(ranges,node)
-                        //结束最后的一个节点对象Range的End结束
-                        that.extractAfterEndNode(ranges,node,range)
                     }else{
                         if(ranges.processing === null){
                             let textRange = new Range()
