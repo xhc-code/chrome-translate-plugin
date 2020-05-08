@@ -12,9 +12,9 @@ function translateDom(){
 
     let [host,pathname] = [window.location.host,window.location.pathname]
 
-    let exclude = DOMUtils.getExclude(host)
+    let excludes = DOMUtils.getExclude(host)
 
-    let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,exclude)
+    let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,excludes)
     console.log("第一步,所检索出的元素DOM对象",elements)
 
     let allRanges = []
@@ -31,22 +31,45 @@ function translateDom(){
 
 class DOMUtils{
     static excludes = {
-        "域名":{
-            path:"子路径(匹配形式)",//前端给的路径匹配正则，应用排除元素选择器规则，决定是否应用这个排除规则
-            //带css选择器的排除规则，只能排除DOM，这个是根据DOM对象进行排除的
-            excludeElementSelector:"span>a,em strong",
-            //单个元素的排除规则，这个是根据标签名进行排除的
-            excludeElementSelectors:["span","a","em","strong"]
-        }
+        //一个域名下有多个匹配规则
+        "域名":[
+            {
+                path:"子路径(匹配形式)",//前端给的路径匹配正则，应用排除元素选择器规则，决定是否应用这个排除规则,正则表达式
+                //带css选择器的排除规则，只能排除DOM，这个是根据DOM对象进行排除的
+                excludeElementSelector:"span>a,em strong",
+                //单个元素的排除规则，这个是根据标签名进行排除的
+                excludeElementSelectors:["span","a","em","strong"]
+            }
+        ]
     };
 
+    static find(key,path){
+        let excludeRules = this.excludes[key]
+        if(!excludeRules){
+            excludeRules = []
+        }
+        let regExp,result = []
+        excludeRules.forEach(function(exclude){
+            if(exclude.path === null || exclude.path.trim() === ""){
+                result.push(exclude)
+            }else{
+                regExp = new RegExp(exclude.path)
+                if(regExp.test(path)){
+                    result.push(exclude)
+                }
+            }
+        })
+    }
     /**
      * 设置排除元素规则
      * @parm key 域名
      * @param exclude
      */
-    static setExclude(key,exclude){
+    static setExclude(key,...exclude){
         this.excludes[key] = exclude
+    }
+    static addExclude(key,...exclude){
+        this.excludes[key].push(...exclude)
     }
 
     /**
@@ -58,11 +81,13 @@ class DOMUtils{
         if(!exclude){
             console.info("%s 未包含在排除规则中",host)
             //保持兼容，返回空对象
-            return {
-                path:"",
-                excludeElementSelector:"",
-                excludeElementSelectors:[]
-            }
+            return [
+                {
+                    path:"",
+                    excludeElementSelector:"",
+                    excludeElementSelectors:[]
+                }
+            ]
         }
         return JSON.parse(JSON.stringify(exclude))
     }
@@ -80,8 +105,6 @@ class DOMUtils{
             ranges.processing.isComplete = true
             ranges.array.push(ranges.processing)
             //设置新Range对象
-            console.log("extractRanges",ranges,node)
-            // startOffset = result.index + 1
             startOffset = r.re.lastIndex
             textRange = new Range()
             //offset基于0开始
@@ -158,7 +181,7 @@ class DOMUtils{
         childNodes.forEach(function(node,index,nodes){
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
-                that.extractRangesByDom1(node,constituency,ranges,deep)
+                that.extractRangesByDom(node,constituency,ranges,deep)
             }else if(Node.TEXT_NODE === nodeType){
                 if(range.startContainer === range.endContainer){
                     let startOffset = range.startOffset
@@ -208,35 +231,6 @@ class DOMUtils{
     }
 
 
-    static extractDoms(dom,selection,exclude){
-        let doms = []
-        //选取的范围对象
-        if(exclude){
-            if(dom.childElementCount > 0){
-                let childrens = Array.prototype.slice.call(dom.children);
-                //过滤出只需要翻译的dom
-                let translateElements = childrens.filter(
-                    (ele)=> {
-                        console.log("filter",selection,ele,selection.containsNode(ele,true))
-                        if(!selection.containsNode(ele,true)) return false;
-                        let nodeName = ele.nodeName.toLowerCase();
-                        return !exclude.excludeElementSelectors.includes(nodeName)
-                    })
-                if(translateElements.length > 0){
-                    console.log("进行遍历的的集合：",translateElements)
-                    //提取出来要翻译的doms对象
-                    translateElements.forEach((ele)=>{
-                        doms.push(...DOMUtils.extractDoms(ele,selection,exclude))
-                    })
-                    return doms;
-                }
-            }
-        }
-        doms.push(dom)
-        return doms;
-    }
-
-
     static getOwnElement(dom){
         if(Node.ELEMENT_NODE === dom.nodeType){
             return dom
@@ -253,7 +247,7 @@ class DOMUtils{
      * @param elements
      * @returns {*}
      */
-    static extractTranslateDomsBySelection(dom,selection,exclude,elements){
+    static extractTranslateDomsBySelection(dom,selection,excludes,elements){
         //返回的结果元素数组
         elements = elements || []
 
@@ -274,13 +268,15 @@ class DOMUtils{
                     for(let i=0;i<children.length;i++){
                         let dom = children.item(i)
                         let nodeName = dom.nodeName
-                        if(dom.nodeType === Node.ELEMENT_NODE && exclude.excludeElementSelectors.includes(nodeName.toLowerCase())){
+                        if(dom.nodeType === Node.ELEMENT_NODE && this.excludeRuleMatchers(excludes,function(exclude){
+                            exclude.excludeElementSelectors.includes(nodeName.toLowerCase())
+                        })){
                             continue
                         }
 
                         //当此节点被部分包含选中的范围
                         if(selection.containsNode(dom,true)){
-                            this.extractTranslateDomsBySelection(dom,selection,exclude,elements)
+                            this.extractTranslateDomsBySelection(dom,selection,excludes,elements)
                         }
                     }
                 }
@@ -289,5 +285,11 @@ class DOMUtils{
         return elements
     }
 
+    static excludeRuleMatchers(excludes,callback){
+        excludes = excludes || []
+        return excludes.some(function(exclude){
+            callback(exclude)
+        })
+    }
 
 }
