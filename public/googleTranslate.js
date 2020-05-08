@@ -115,17 +115,22 @@ class DOMUtils{
         }
     }
 
-    //最新版本
     /**
      * 提取指定dom里的以句号分隔的Ranges对象集合
      * @param dom 针对的根DOM元素
      * @param selection 选区的对象getSelection()
      * @param ranges 数组Ranges集合,结果集合
      */
-    static extractRangesByDom(dom,selection,ranges) {
+    static extractRangesByDom(dom,selection,ranges,deep) {
         let that = this,constituency = selection
         // constituency选区的对象 ==> {selection:{},ranges:[range]}
         // Range==>{range:对象,isComplete:false,toStart:false,toEnd:true}
+        //递归层级，从1开始
+        if(deep === undefined || deep === null){
+            deep = 1
+        }else{
+            deep++
+        }
 
         if(selection instanceof Selection){
             constituency = {
@@ -150,10 +155,10 @@ class DOMUtils{
             childNodes = dom.childNodes
         }
 
-        childNodes.forEach(function(node){
+        childNodes.forEach(function(node,index,nodes){
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
-                that.extractRangesByDom(node,constituency,ranges)
+                that.extractRangesByDom1(node,constituency,ranges,deep)
             }else if(Node.TEXT_NODE === nodeType){
                 if(range.startContainer === range.endContainer){
                     let startOffset = range.startOffset
@@ -163,35 +168,37 @@ class DOMUtils{
                     that.extractRanges(ranges,node,startOffset)
                     //结束最后的一个节点对象Range的End结束
                     that.extractAfterEndNode(ranges,node,range)
-                }else if(node === range.startContainer){
-                    let startOffset = range.startOffset
-                    let textRange = new Range()
-                    textRange.setStart(node,startOffset)
-                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                    that.extractRanges(ranges,node,startOffset)
-                    //结束最后的一个节点对象Range的End结束
-                    that.extractAfterEndNode(ranges,node)
-                }else if(node === range.endContainer){
-                    let textRange = new Range()
-                    textRange.setStart(node,0)
-                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                    that.extractRanges(ranges,node)
-                    //结束最后的一个节点对象Range的End结束
-                    that.extractAfterEndNode(ranges,node,range)
-                }else{
-                    let textRange = new Range()
-                    textRange.setStart(node,0)
-                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                    that.extractRanges(ranges,node)
-                    //结束中间节点的的End结束
-                    that.extractAfterEndNode(ranges,node)
+                }else {
+                    if(node === range.startContainer){
+                        let startOffset = range.startOffset
+                        let textRange = new Range()
+                        textRange.setStart(node,startOffset)
+                        ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                        that.extractRanges(ranges,node,startOffset)
+                    }else if(node === range.endContainer){
+                        that.extractRanges(ranges,node)
+                        //结束最后的一个节点对象Range的End结束
+                        that.extractAfterEndNode(ranges,node,range)
+                    }else{
+                        if(ranges.processing === null){
+                            let textRange = new Range()
+                            textRange.setStart(node,0)
+                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                        }
+                        that.extractRanges(ranges,node)
+                    }
+                    if(deep ===1 && index === nodes.length-1 && ranges.processing!==null && !ranges.processing.isComplete){
+                        let middleRange = (node === range.startContainer || node !== range.endContainer) ? null:range
+                        //结束最后的一个节点对象Range的End结束
+                        that.extractAfterEndNode(ranges,node,middleRange)
+                    }
                 }
             }
         })
 
-
         return ranges
     }
+
 
 
     static matchPoint(text,startIndex){
