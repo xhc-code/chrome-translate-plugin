@@ -103,53 +103,6 @@ class DOMUtils{
         return JSON.parse(JSON.stringify(exclude))
     }
 
-    static extractRanges(ranges,node,startOffset){
-        let that = this,nodeValue = node.nodeValue,textRange=ranges.processing.o
-        startOffset = startOffset || 0
-        let r = that.matchPoint(nodeValue,startOffset)
-        let result = r.result
-        while(true) {
-            if(result === null) break
-            //offset基于1开始
-            textRange.setEnd(node, r.re.lastIndex)
-            ranges.processing.toEnd = false
-            ranges.processing.isComplete = true
-            ranges.array.push(ranges.processing)
-            //设置新Range对象
-            startOffset = r.re.lastIndex
-            textRange = new Range()
-            //offset基于0开始
-            textRange.setStart(node,startOffset)
-            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-
-            result = r.re.exec(nodeValue)
-        }
-    }
-
-    /**
-     *
-     * @param ranges
-     * @param node
-     * @param range 当range为undefined或为null，将以 node 对象创建一个新的Range对象
-     */
-    static extractAfterEndNode(ranges,node,range){
-        let textRange = ranges.processing.o
-        if(range === undefined || range === null){
-            //结束中间节点的的End结束
-            range = new Range()
-            range.selectNodeContents(node)
-        }
-        if(!ranges.processing.isComplete && ranges.processing.toEnd){
-            let endOffset = range.endOffset
-            textRange.setEnd(node,endOffset)
-            ranges.processing.toEnd = false
-            ranges.processing.isComplete = true
-            ranges.array.push(ranges.processing)
-            ranges.processing = null
-        }
-    }
-
-
     static extractDomConvertRange(dom,selection,ranges,deep,stateEvent){
         let childNodes = dom.childNodes,constituency = selection
         //结构化初始数据-----开始
@@ -278,102 +231,11 @@ class DOMUtils{
 
     }
 
-
-
-    /**
-     * 提取指定dom里的以句号分隔的Ranges对象集合
-     * @param dom 针对的根DOM元素
-     * @param selection 选区的对象getSelection()
-     * @param ranges 数组Ranges集合,结果集合
-     */
-    static extractRangesByDom(dom,selection,ranges,deep) {
-        let that = this,constituency = selection
-        // constituency选区的对象 ==> {selection:{},ranges:[range]}
-        // Range==>{range:对象,isComplete:false,toStart:false,toEnd:true}
-        //递归层级，从1开始
-        if(deep === undefined || deep === null){
-            deep = 1
-        }else{
-            deep++
-        }
-
-        if(selection instanceof Selection){
-            constituency = {
-                selection: selection,
-                firstRange: selection.getRangeAt(0)
-            }
-        }
-        let range = constituency.firstRange
-
-        ranges = ranges || []
-        if(ranges.array === undefined){
-            ranges.array = []
-        }
-        if(ranges.processing === undefined){
-            ranges.processing = null
-        }
-        //正文开始
-        let childNodes
-        if(dom.nodeType === Node.TEXT_NODE){
-            childNodes = [dom]
-        }else{
-            childNodes = dom.childNodes
-        }
-
-        for(let index=0,nodes=childNodes;index<childNodes.length;index++){
-            let node = childNodes[index]
-            let nodeType = node.nodeType
-            if(Node.ELEMENT_NODE === nodeType){
-                that.extractRangesByDom(node,constituency,ranges,deep)
-            }else if(Node.TEXT_NODE === nodeType){
-                if(range.startContainer === range.endContainer){
-                    let startOffset = range.startOffset
-                    let textRange = new Range()
-                    textRange.setStart(node,startOffset)
-                    ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                    that.extractRanges(ranges,node,startOffset)
-                    //结束最后的一个节点对象Range的End结束
-                    that.extractAfterEndNode(ranges,node,range)
-                }else {
-                    if(node === range.startContainer){
-                        let startOffset = range.startOffset
-                        let textRange = new Range()
-                        textRange.setStart(node,startOffset)
-                        ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                        that.extractRanges(ranges,node,startOffset)
-                    }else if(node === range.endContainer){
-                        //结束最后的一个节点对象Range的End结束
-                        that.extractAfterEndNode(ranges,node,range)
-                        break;
-                    }else{
-                        if(ranges.processing === null){
-                            let textRange = new Range()
-                            textRange.setStart(node,0)
-                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
-                        }
-                        that.extractRanges(ranges,node)
-                    }
-                    if(deep ===1 && index === nodes.length-1 && ranges.processing!==null && !ranges.processing.isComplete){
-                        let middleRange = (node === range.startContainer || node !== range.endContainer) ? null:range
-                        //结束最后的一个节点对象Range的End结束
-                        that.extractAfterEndNode(ranges,node,middleRange)
-                    }
-                }
-            }
-
-        }
-
-        return ranges
-    }
-
-
-
     static matchPoint(text,startIndex){
         const regex = new RegExp(/\.(?:\s|\s?$)/,"g")
         regex.lastIndex = startIndex || 0
         return {result:regex.exec(text),re:regex}
     }
-
 
     static getOwnElement(dom){
         if(Node.ELEMENT_NODE === dom.nodeType){
