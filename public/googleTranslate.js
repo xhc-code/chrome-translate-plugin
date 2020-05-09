@@ -15,16 +15,19 @@ function translateDom(){
     let excludes = DOMUtils.getExclude(host)
 
     let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,excludes)
-    console.log("第一步,所检索出的元素DOM对象",elements)
 
     let allRanges = []
     elements.forEach(function(dom){
-        let ranges =  DOMUtils.extractRangesByDom(dom,selection);
+        // let ranges =  DOMUtils.extractRangesByDom(dom,selection);
+        console.log("将要遍历的DOM: %s",dom,dom)
+        let ranges =  DOMUtils.extractDomConvertRange(dom,selection);
         allRanges.push(...ranges.array)
     })
-    top.elements = elements
-    top.allRanges = allRanges
-    console.log("第二部,分析出的所有需要翻译的Ranges",allRanges)
+
+    allRanges.forEach(function(range,index){
+        let text = range.o.toString()
+        console.log("allRanges [%d]: %s",index,text)
+    })
 
 }
 
@@ -43,7 +46,14 @@ class DOMUtils{
         ]
     };
 
-    static find(key,path){
+    static excludeRuleMatchers(excludes,callback){
+        excludes = excludes || []
+        return excludes.some(function(exclude){
+            callback(exclude)
+        })
+    }
+
+    static findMatcherExcludes(key,path){
         let excludeRules = this.excludes[key]
         if(!excludeRules){
             excludeRules = []
@@ -59,6 +69,7 @@ class DOMUtils{
                 }
             }
         })
+        return result
     }
     /**
      * 设置排除元素规则
@@ -138,6 +149,137 @@ class DOMUtils{
         }
     }
 
+
+    static extractDomConvertRange(dom,selection,ranges,deep,stateEvent){
+        let childNodes = dom.childNodes,constituency = selection
+        //结构化初始数据-----开始
+        if(selection instanceof Selection){
+            constituency = {
+                selection: selection,
+                firstRange: selection.getRangeAt(0)
+            }
+        }
+        stateEvent = stateEvent || {};
+        ranges = ranges || []
+        ranges.array = ranges.array || []
+        ranges.processing = ranges.processing || null
+        //递归层级，从1开始
+        deep = (deep === undefined || deep === null)?1:++deep
+        //结构化初始数据-----结束
+
+        //选区索引为0的Range对象
+        let range = constituency.firstRange
+        let startContainer = range.startContainer,startOffset = range.startOffset
+        let endContainer = range.endContainer,endOffset = range.endOffset
+        if(startContainer === endContainer){
+            //当开始和结束是同一节点时
+            console.log("选区的对象只是文本")
+        }else{
+            for(let i=0,node,nodeType,textRange,isLast=false;i<childNodes.length;i++){
+                node = childNodes[i]
+                isLast=(i===childNodes.length-1)
+                nodeType = node.nodeType
+                switch (nodeType) {
+                    case Node.ELEMENT_NODE:
+                        this.extractDomConvertRange(node,selection,ranges,deep,stateEvent)
+                        break
+                    case Node.TEXT_NODE:
+                        if(startContainer === node){
+                            textRange = new Range()
+                            //offset基于0开始
+                            textRange.setStart(node,startOffset)
+                            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                            this.findAllRangesByNode(ranges,node,startOffset,isLast)
+                        }else if(endContainer === node){
+                            if(ranges.processing === null){
+                                textRange = new Range()
+                                //offset基于0开始
+                                textRange.setStart(node,0)
+                                ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                            }
+                            //需要手动设置结束节点
+                            this.findAllRangesByNode(ranges,node,null,false,true,endOffset)
+                            if(ranges.processing!==null && !ranges.processing.isComplete && ranges.processing.toEnd){
+                                ranges.processing.o.setEnd(node, endOffset)
+                                ranges.processing.toEnd = false
+                                ranges.processing.isComplete = true
+                                ranges.array.push(ranges.processing)
+                                ranges.processing = null
+                                //退出循环信号
+                                stateEvent.isExit = true
+                            }
+                        }else{
+                            if(ranges.processing === null){
+                                textRange = new Range()
+                                //offset基于0开始
+                                textRange.setStart(node,0)
+                                ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+                            }
+                            this.findAllRangesByNode(ranges,node,0,deep ===1 && isLast)
+                        }
+                        break
+                }
+                if(stateEvent.isExit){
+                    break
+                }
+            }
+        }
+        return ranges
+    }
+
+    /**
+     * 提取Ranges
+     * @param dom
+     * @param startOffset
+     * @param executeType 当前执行的节点所属类型：1开始节点/2结束节点/3正常(中间)节点
+     */
+    static findAllRangesByNode(ranges,node,startOffset,isLastNode,isEndNode,endOffset){
+        startOffset = startOffset || 0
+        let nodeValue = node.nodeValue,
+            r = this.matchPoint(nodeValue,startOffset),
+            result = r.result,
+            textRange=ranges.processing.o
+
+        if(result === null && isLastNode){
+            let middleRange = new Range()
+            middleRange.selectNodeContents(node)
+            textRange.setEnd(node, middleRange.endOffset)
+            ranges.processing.toEnd = false
+            ranges.processing.isComplete = true
+            ranges.array.push(ranges.processing)
+            ranges.processing = null
+        }else{
+            while(result !== null){
+                startOffset = r.re.lastIndex
+                if(isEndNode){
+                    //是 【结束节点】 需要额外判断是否超出 选区的结束范围，则break退出
+                    if(startOffset >= endOffset){
+                        break
+                    }
+                }
+                //设置新Range对象
+                textRange.setEnd(node, startOffset)
+                ranges.processing.toEnd = false
+                ranges.processing.isComplete = true
+                ranges.array.push(ranges.processing)
+                ranges.processing = null
+
+                //判断当前节点值是否还可以找到 “点” 的索引
+                result = r.re.exec(nodeValue)
+                if(result === null && isLastNode){
+                    break;
+                }
+                textRange = new Range()
+                //offset基于0开始
+                textRange.setStart(node,startOffset)
+                ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+            }
+        }
+
+    }
+
+
+
     /**
      * 提取指定dom里的以句号分隔的Ranges对象集合
      * @param dom 针对的根DOM元素
@@ -178,7 +320,8 @@ class DOMUtils{
             childNodes = dom.childNodes
         }
 
-        childNodes.forEach(function(node,index,nodes){
+        for(let index=0,nodes=childNodes;index<childNodes.length;index++){
+            let node = childNodes[index]
             let nodeType = node.nodeType
             if(Node.ELEMENT_NODE === nodeType){
                 that.extractRangesByDom(node,constituency,ranges,deep)
@@ -198,6 +341,10 @@ class DOMUtils{
                         textRange.setStart(node,startOffset)
                         ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                         that.extractRanges(ranges,node,startOffset)
+                    }else if(node === range.endContainer){
+                        //结束最后的一个节点对象Range的End结束
+                        that.extractAfterEndNode(ranges,node,range)
+                        break;
                     }else{
                         if(ranges.processing === null){
                             let textRange = new Range()
@@ -213,7 +360,8 @@ class DOMUtils{
                     }
                 }
             }
-        })
+
+        }
 
         return ranges
     }
@@ -221,7 +369,7 @@ class DOMUtils{
 
 
     static matchPoint(text,startIndex){
-        const regex = new RegExp(/\.\s/,"g")
+        const regex = new RegExp(/\.(?:\s|\s?$)/,"g")
         regex.lastIndex = startIndex || 0
         return {result:regex.exec(text),re:regex}
     }
@@ -258,6 +406,13 @@ class DOMUtils{
             if(selection.containsNode(dom)){
                 //完全包含节点
                 elements.push(dom)
+            }else if(selection.containsNode(dom,true) && Array.from(dom.childNodes).some(function(node){
+                if(Node.TEXT_NODE === node.nodeType && node.nodeValue.trim().length>0){
+                    return true
+                }
+            })){
+                //半完全包含节点并且子节点等于1
+                elements.push(dom)
             }else{
                 let children = dom.children
                 if(children.length>0){
@@ -279,13 +434,6 @@ class DOMUtils{
             }
         }
         return elements
-    }
-
-    static excludeRuleMatchers(excludes,callback){
-        excludes = excludes || []
-        return excludes.some(function(exclude){
-            callback(exclude)
-        })
     }
 
 }
