@@ -12,12 +12,13 @@
     {
       "matches": ["*://*/*"],
       "css": ["translate.css"],
-      "js": ["googleTranslate.js","content_script_demo.js"]
+      "js": ["googleTranslate.js"]
     }
   ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "browser_action": {
-    "default_popup": "index.html"
+    "default_popup": "index.html",
+    "default_icon": "translate_plugin_icon.png"
   },
   "commands": {
     "triggerTranslateKey": {
@@ -26,5 +27,10 @@
       },
       "description": "触发翻译的快捷键"
     }
+  },
+  "icons": {
+    "16": "translate_plugin_icon.png",
+    "48": "translate_plugin_icon.png",
+    "128": "translate_plugin_icon.png"
   }
 }
