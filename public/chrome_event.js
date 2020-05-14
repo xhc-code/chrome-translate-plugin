@@ -31,14 +31,3 @@ chrome.runtime.onInstalled.addListener(function(){
 
 })
 
-
-function modifyKey(){
-    chrome.commands.getAll(function(commands){
-        for(let command of commands){
-            if(command.shortcut === "Ctrl+Shift+L"){
-                command.shortcut = "Ctrl+Shift+Y"
-            }
-        }
-        console.log("已注册的快捷键",commands)
-    })
-}
