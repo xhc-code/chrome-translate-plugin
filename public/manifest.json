@@ -18,5 +18,13 @@
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "browser_action": {
     "default_popup": "index.html"
+  },
+  "commands": {
+    "triggerTranslateKey": {
+      "suggested_key": {
+        "default": "Ctrl+Z"
+      },
+      "description": "触发翻译的快捷键"
+    }
   }
 }

@@ -178,6 +178,7 @@ class DOMUtils{
                     stateEvent.isFirstLevelLastNode = (i===childNodes.length-1)
                 }
                 node = childNodes[i]
+                if(node.nodeValue)
                 isLast=(i===childNodes.length-1)
                 nodeType = node.nodeType
                 switch (nodeType) {
@@ -275,7 +276,10 @@ class DOMUtils{
             textRange.setEnd(node, middleRange.endOffset)
             ranges.processing.toEnd = false
             ranges.processing.isComplete = true
-            ranges.array.push(ranges.processing)
+            //判断这个Range对象的选区信息不是 空字符串，是空字符串则舍弃，否则push到结果集合中
+            if(textRange.toString().trim() !== ""){
+                ranges.array.push(ranges.processing)
+            }
             ranges.processing = null
         }else{
             while(result !== null){
@@ -344,7 +348,7 @@ class DOMUtils{
             dom = range.commonAncestorContainer
         }
         //开始和结束节点等于当前dom，则直接push到结果集合中(elements)  , 或者是文本节点，直接进入
-        if((dom === this.getOwnElement(range.startContainer) || dom === this.getOwnElement(range.endContainer))){
+        if((dom === range.startContainer || dom === range.endContainer)){
             elements.push(dom)
         }else if(selection.containsNode(dom,true)){
             let nodes = Array.from(dom.childNodes);

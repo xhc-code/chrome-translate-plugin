@@ -68,18 +68,20 @@ chrome.runtime.onConnect.addListener(function(port){
                                     //翻译之前的原文
                                     originText: originText
                                 }
-                                resolve()
+                                resolve("success")
                             }catch(e){
-                                reject()
+                                reject(e)
                             }
                         })
                     })
                 )
             }
+    console.log("promiseQueue:",promiseQueue)
             Promise.all(promiseQueue).then(function(){
                 console.log("translateResult",translateResult)
                 port.postMessage({status:"success",translateData:translateResult})
-            }).catch(function(){
+            }).catch(function(errors){
+                console.log("errors",errors)
                 //刷新TKK值
                 Translator.refershGoogleTKK();
             })
