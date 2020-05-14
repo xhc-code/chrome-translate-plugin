@@ -1,7 +1,11 @@
 console.log("谷歌翻译",window.document,document.body)
 
 
-
+chrome.runtime.onMessage.addListener(function(data){
+    if(data.eventOperate && data.eventOperate === "triggerTranslate"){
+        translateDom()
+    }
+})
 
 function translateDom(){
     let selection = window.getSelection();
@@ -43,6 +47,8 @@ function translateDom(){
             })
         }
     })
+    //移除选区信息
+    selection.removeAllRanges()
 }
 
 function createElement(node,text){
@@ -212,7 +218,7 @@ class DOMUtils{
                                 ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                             }
                             // isLoastNode 代表层级是首层并且是集合中最后一个元素
-                            this.findAllRangesByNode(ranges,node,0,deep ===1 && isLast)
+                            this.findAllRangesByNode(ranges,node,0,stateEvent.isFirstLevelLastNode)
                             //当是第一层循环的最后一个子节点时，就说明这是最后一个元素，这里该进行关闭操作
                             if(stateEvent.isFirstLevelLastNode && isLast && ranges.processing!==null && !ranges.processing.isComplete && ranges.processing.toEnd) {
                                 let middleRange = new Range()
@@ -302,7 +308,7 @@ class DOMUtils{
     }
 
     static matchPoint(text,startIndex){
-        const regex = new RegExp(/(?:\.(?:\s|\s?$))|(:$)/,"g")
+        const regex = new RegExp(/(?:\.(?:\s|\s?$))|(:\s*$)/,"g")
         regex.lastIndex = startIndex || 0
         return {result:regex.exec(text),re:regex}
     }
@@ -337,26 +343,28 @@ class DOMUtils{
         if(dom === null){
             dom = range.commonAncestorContainer
         }
-        //开始和结束节点等于当前dom，则直接push到结果集合中(elements)
+        //开始和结束节点等于当前dom，则直接push到结果集合中(elements)  , 或者是文本节点，直接进入
         if((dom === this.getOwnElement(range.startContainer) || dom === this.getOwnElement(range.endContainer))){
             elements.push(dom)
         }else if(selection.containsNode(dom,true)){
             let nodes = Array.from(dom.childNodes);
             // 判断子节点是否大于0并且判断当前当前dom的子节点集合是否存在 文本 节点，如果存在则直接push到结果(elements)中
-            if(nodes.length>0 && nodes.some(function(node){
+            if((nodes.length>0 && nodes.some(function(node){
                 // 当为文本节点并且有值的时候，则返回true，代表存入最终的DOM中
-                if(Node.TEXT_NODE === node.nodeType && node.nodeValue.trim().length>0){
+                if(selection.containsNode(node,true) && Node.TEXT_NODE === node.nodeType && node.nodeValue.trim().length>0){
                     return true
                 }
                 return false
-            })){
+            }))){
                 // push到结果集合中
                 elements.push(dom)
             }else{
                 //遍历元素
                 let childrens = Array.from(dom.children)
                 childrens.forEach(function(dom){
-                    that.extractTranslateDomsBySelection(dom,selection,excludes,elements)
+                    if(selection.containsNode(dom,true)){
+                        that.extractTranslateDomsBySelection(dom,selection,excludes,elements)
+                    }
                 })
             }
         }/*else{

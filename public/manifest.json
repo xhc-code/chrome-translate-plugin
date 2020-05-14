@@ -7,7 +7,7 @@
     "scripts": ["tool_before.js","GT.js","tool.js","background.js","chrome_event.js"]
   },
   "manifest_version": 2,
-  "permissions": ["activeTab","tabs","https://translate.google.cn/**"],
+  "permissions": ["activeTab","tabs","contextMenus","https://translate.google.cn/*"],
   "content_scripts": [
     {
       "matches": ["*://*/*"],
