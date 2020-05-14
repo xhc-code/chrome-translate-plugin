@@ -1,0 +1,12 @@
+.translate::before {
+    content: '[';
+    color: #42b983;
+}
+.translate::after {
+    content: ']';
+    color: #42b983;
+    margin-right: 15px;
+}
+.translate{
+    color: dodgerblue;
+}

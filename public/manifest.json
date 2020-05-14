@@ -4,15 +4,15 @@
   "description": "使用谷歌服务进行翻译的插件",
   "background": {
     "persistent": false,
-    "scripts": ["background.js"]
+    "scripts": ["tool_before.js","GT.js","tool.js","background.js","chrome_event.js"]
   },
   "manifest_version": 2,
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab","tabs","https://translate.google.cn/**"],
   "content_scripts": [
     {
       "matches": ["*://*/*"],
-      "css": [],
-      "js": ["GT.js","googleTranslate.js"]
+      "css": ["translate.css"],
+      "js": ["googleTranslate.js","content_script_demo.js"]
     }
   ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",

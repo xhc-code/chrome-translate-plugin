@@ -15,20 +15,46 @@ function translateDom(){
     let excludes = DOMUtils.getExclude(host)
 
     let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,excludes)
-
+    console.log("提取的DOMS:",elements)
     let allRanges = []
     elements.forEach(function(dom){
-        // let ranges =  DOMUtils.extractRangesByDom(dom,selection);
-        console.log("将要遍历的DOM: %s",dom,dom)
         let ranges =  DOMUtils.extractDomConvertRange(dom,selection);
         allRanges.push(...ranges.array)
     })
 
-    allRanges.forEach(function(range,index){
-        let text = range.o.toString()
-        console.log("allRanges [%d]: %s",index,text)
+        console.log("搜索的结果，交给后台脚本处理",allRanges)
+    let port = chrome.runtime.connect({name:"translateRanges"})
+    port.postMessage({
+        translateTexts:allRanges.map(function(range){
+            return range.o.toString().trim()
+        }),
+        sl:"en",
+        tl:"zh-CN"
     })
+    port.onMessage.addListener(function(data){
+        console.log("返回的结果",data)
+        if(data.status === "success"){
+            console.log("接受翻译的结果数据",data)
+            let translateData = data.translateData
+            allRanges.forEach(function(range,index){
+                let ele = createTranslateNode(translateData[index].translateText)
+                range.o.collapse()
+                range.o.insertNode(ele)
+            })
+        }
+    })
+}
 
+function createElement(node,text){
+    let nodeElement = document.createElement(node),textNode = document.createTextNode(text)
+    nodeElement.appendChild(textNode)
+    return nodeElement
+}
+
+function createTranslateNode(text){
+    let element = createElement("inline-translate",text);
+    element.className = "translate"
+    return element
 }
 
 
@@ -104,7 +130,9 @@ class DOMUtils{
     }
 
     static extractDomConvertRange(dom,selection,ranges,deep,stateEvent){
-        let childNodes = dom.childNodes,constituency = selection
+        //元素节点不一定有文本节点，需要谨记
+        let childNodes = dom.childNodes,
+            constituency = selection
         //结构化初始数据-----开始
         if(selection instanceof Selection){
             constituency = {
@@ -126,9 +154,23 @@ class DOMUtils{
         let endContainer = range.endContainer,endOffset = range.endOffset
         if(startContainer === endContainer){
             //当开始和结束是同一节点时
-            console.log("选区的对象只是文本")
+            let textRange = new Range()
+            //offset基于0开始
+            textRange.setStart(startContainer,startOffset)
+            ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
+            this.findAllRangesByNode(ranges,startContainer,startOffset,false,true,endOffset)
+            if(ranges.processing!==null && !ranges.processing.isComplete && ranges.processing.toEnd){
+                ranges.processing.o.setEnd(endContainer, endOffset)
+                ranges.processing.toEnd = false
+                ranges.processing.isComplete = true
+                ranges.array.push(ranges.processing)
+                ranges.processing = null
+            }
         }else{
             for(let i=0,node,nodeType,textRange,isLast=false;i<childNodes.length;i++){
+                if(deep === 1){
+                    stateEvent.isFirstLevelLastNode = (i===childNodes.length-1)
+                }
                 node = childNodes[i]
                 isLast=(i===childNodes.length-1)
                 nodeType = node.nodeType
@@ -137,6 +179,7 @@ class DOMUtils{
                         this.extractDomConvertRange(node,selection,ranges,deep,stateEvent)
                         break
                     case Node.TEXT_NODE:
+                        /*能进到这里面进行判断的，应该都是 文本 节点*/
                         if(startContainer === node){
                             textRange = new Range()
                             //offset基于0开始
@@ -168,7 +211,19 @@ class DOMUtils{
                                 textRange.setStart(node,0)
                                 ranges.processing = {o:textRange,isComplete:false,toStart:false,toEnd:true}
                             }
+                            // isLoastNode 代表层级是首层并且是集合中最后一个元素
                             this.findAllRangesByNode(ranges,node,0,deep ===1 && isLast)
+                            //当是第一层循环的最后一个子节点时，就说明这是最后一个元素，这里该进行关闭操作
+                            if(stateEvent.isFirstLevelLastNode && isLast && ranges.processing!==null && !ranges.processing.isComplete && ranges.processing.toEnd) {
+                                let middleRange = new Range()
+                                middleRange.selectNodeContents(node)
+                                ranges.processing.o.setEnd(node, middleRange.endOffset)
+                                ranges.processing.toEnd = false
+                                ranges.processing.isComplete = true
+                                ranges.array.push(ranges.processing)
+                                ranges.processing = null
+                            }
+
                         }
                         break
                 }
@@ -177,14 +232,29 @@ class DOMUtils{
                 }
             }
         }
+        //紧急措施，当第一层循环遍历完，还有未结束的Range范围时，需要从Ranges正在处理的Range对象上提取结束容器和偏移值，并且把文本的end节点进行设置到这一个节点中
+        //能到这里，就说明这里再不处理，就有可能丢掉一个Range范围
+        if(stateEvent.isFirstLevelLastNode && ranges.processing!==null && !ranges.processing.isComplete && ranges.processing.toEnd){
+            let middleRange = new Range()
+            middleRange.selectNodeContents(ranges.processing.o.endContainer)
+            ranges.processing.o.setEnd(ranges.processing.o.endContainer,middleRange.endOffset)
+            ranges.processing.toEnd = false
+            ranges.processing.isComplete = true
+            ranges.array.push(ranges.processing)
+            ranges.processing = null
+        }
         return ranges
     }
 
+
     /**
-     * 提取Ranges
-     * @param dom
+     * 根据node提取Ranges对象
+     * @param ranges
+     * @param node DOM对象
      * @param startOffset
-     * @param executeType 当前执行的节点所属类型：1开始节点/2结束节点/3正常(中间)节点
+     * @param isLastNode 是否是集合中的最后一个节点
+     * @param isEndNode 是否是Range选区对象的EndContainer对象
+     * @param endOffset 选区Range对象的endOffset值
      */
     static findAllRangesByNode(ranges,node,startOffset,isLastNode,isEndNode,endOffset){
         startOffset = startOffset || 0
@@ -232,7 +302,7 @@ class DOMUtils{
     }
 
     static matchPoint(text,startIndex){
-        const regex = new RegExp(/\.(?:\s|\s?$)/,"g")
+        const regex = new RegExp(/(?:\.(?:\s|\s?$))|(:$)/,"g")
         regex.lastIndex = startIndex || 0
         return {result:regex.exec(text),re:regex}
     }
@@ -245,6 +315,7 @@ class DOMUtils{
         return this.getOwnElement(parentElement)
     }
 
+
     /**
      * 捕获方式进行遍历出选区的DOM对象
      * @param dom
@@ -254,6 +325,11 @@ class DOMUtils{
      * @returns {*}
      */
     static extractTranslateDomsBySelection(dom,selection,excludes,elements){
+
+        if(dom !== null && dom.nodeType === Node.TEXT_NODE && dom.nodeValue.trim().length === 0) {
+            return
+        }
+        let that = this
         //返回的结果元素数组
         elements = elements || []
 
@@ -261,41 +337,66 @@ class DOMUtils{
         if(dom === null){
             dom = range.commonAncestorContainer
         }
-
-        if(dom === this.getOwnElement(range.startContainer) || dom === this.getOwnElement(range.endContainer)){
+        //开始和结束节点等于当前dom，则直接push到结果集合中(elements)
+        if((dom === this.getOwnElement(range.startContainer) || dom === this.getOwnElement(range.endContainer))){
             elements.push(dom)
-        }else{
-            if(selection.containsNode(dom)){
-                //完全包含节点
-                elements.push(dom)
-            }else if(selection.containsNode(dom,true) && Array.from(dom.childNodes).some(function(node){
+        }else if(selection.containsNode(dom,true)){
+            let nodes = Array.from(dom.childNodes);
+            // 判断子节点是否大于0并且判断当前当前dom的子节点集合是否存在 文本 节点，如果存在则直接push到结果(elements)中
+            if(nodes.length>0 && nodes.some(function(node){
+                // 当为文本节点并且有值的时候，则返回true，代表存入最终的DOM中
                 if(Node.TEXT_NODE === node.nodeType && node.nodeValue.trim().length>0){
                     return true
                 }
+                return false
             })){
-                //半完全包含节点并且子节点等于1
+                // push到结果集合中
                 elements.push(dom)
             }else{
-                let children = dom.children
-                if(children.length>0){
-                    for(let i=0;i<children.length;i++){
-                        let dom = children.item(i)
-                        let nodeName = dom.nodeName
-                        if(dom.nodeType === Node.ELEMENT_NODE && this.excludeRuleMatchers(excludes,function(exclude){
-                            exclude.excludeElementSelectors.includes(nodeName.toLowerCase())
-                        })){
-                            continue
-                        }
+                //遍历元素
+                let childrens = Array.from(dom.children)
+                childrens.forEach(function(dom){
+                    that.extractTranslateDomsBySelection(dom,selection,excludes,elements)
+                })
+            }
+        }/*else{
+            console.log("else",dom)
+            let children = dom.children
+            if(children.length>0){
+                for(let i=0;i<children.length;i++){
+                    let dom = children.item(i)
+                    let nodeName = dom.nodeName
+                    if(dom.nodeType === Node.ELEMENT_NODE && this.excludeRuleMatchers(excludes,function(exclude){
+                        exclude.excludeElementSelectors.includes(nodeName.toLowerCase())
+                    })){
+                        continue
+                    }
 
-                        //当此节点被部分包含选中的范围
-                        if(selection.containsNode(dom,true)){
-                            this.extractTranslateDomsBySelection(dom,selection,excludes,elements)
-                        }
+                    //当此节点被部分包含选中的范围
+                    if(selection.containsNode(dom,true)){
+                        this.extractTranslateDomsBySelection(dom,selection,excludes,elements)
                     }
                 }
             }
-        }
+        }*/
         return elements
     }
 
+
+}
+
+
+function testExtractTranslateDomsBySelection(){
+    let selection = window.getSelection();
+
+    if(selection.isCollapsed || selection.rangeCount === 0){
+        throw new Error("请选择文本再进行翻译");
+    }
+
+    let [host,pathname] = [window.location.host,window.location.pathname]
+
+    let excludes = DOMUtils.getExclude(host)
+
+    let elements = DOMUtils.extractTranslateDomsBySelection(null,selection,excludes)
+    console.log("test:",elements)
 }
